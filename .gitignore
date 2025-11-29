@@ -1,0 +1,17 @@
+# Build outputs
+bin/
+obj/
+out/
+release/
+artifacts/
+
+# IDE/editor
+.vs/
+.idea/
+*.user
+*.suo
+*.swp
+
+# Logs/temp
+*.log
+*.tmp
