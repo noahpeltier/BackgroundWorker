@@ -16,5 +16,6 @@ artifacts/
 *.log
 *.tmp
 
-# Personal/idea notes
+# Personal/idea notes/testing
 ideas/
+testing.ps1
