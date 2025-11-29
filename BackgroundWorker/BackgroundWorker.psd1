@@ -1,5 +1,5 @@
 @{
-    RootModule           = 'out/Release/net8.0/BackgroundWorker.dll'
+    RootModule           = 'bin/Release/net8.0/BackgroundWorker.dll'
     ModuleVersion        = '0.1.0'
     GUID                 = 'd03a60a3-419f-4b5c-9dfa-2e61f652e8a8'
     Author               = 'Runspace Scheduler'
