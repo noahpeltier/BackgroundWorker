@@ -16,6 +16,7 @@
         'Receive-RunspaceTaskProgress',
         'Stop-RunspaceTask',
         'Remove-RunspaceTask',
+        'Show-RunspaceTasks',
         'Wait-RunspaceTask',
         'Get-RunspaceScheduler',
         'Set-RunspaceScheduler',

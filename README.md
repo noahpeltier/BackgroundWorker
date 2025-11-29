@@ -8,6 +8,7 @@ Run background PowerShell work in a shared runspace pool with progress, cancella
 - Run: `$t = Start-RunspaceTask { 1..3 | ForEach-Object { Start-Sleep 1; $_ } }`
 - Observe: `Get-RunspaceTask` and `Receive-RunspaceTask -Task $t`
 - Cancel/timeout: `Stop-RunspaceTask -Task $t` or `Start-RunspaceTask -TimeoutSeconds 60 { ... }`
+- Live view: `Show-RunspaceTasks -RefreshMilliseconds 500` (Spectre.Console-powered live table; Ctrl+C to exit)
 
 ## Session state (modules/variables)
 - Configure defaults for all runspace tasks: `Set-RunspaceSessionState -Module 'MyModule' -Variable @{ PSModulePath = "$env:PSModulePath;/extra/path" }`
