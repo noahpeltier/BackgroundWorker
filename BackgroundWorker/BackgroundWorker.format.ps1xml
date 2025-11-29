@@ -10,6 +10,7 @@
         <AutoSize>true</AutoSize>
         <TableHeaders>
           <TableColumnHeader><Label>Id</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Name</Label></TableColumnHeader>
           <TableColumnHeader><Label>Status</Label></TableColumnHeader>
           <TableColumnHeader><Label>Created</Label></TableColumnHeader>
           <TableColumnHeader><Label>Started</Label></TableColumnHeader>
@@ -22,6 +23,7 @@
           <TableRowEntry>
             <TableColumnItems>
               <TableColumnItem><PropertyName>Id</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Name</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>Status</PropertyName></TableColumnItem>
               <TableColumnItem>
                 <ScriptBlock>

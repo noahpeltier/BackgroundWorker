@@ -7,10 +7,14 @@ namespace BackgroundWorker.Commands;
 public sealed class ShowRunspaceTasksCommand : PSCmdlet
 {
     private CancellationTokenSource _cts = new();
+    private static readonly string[] SpinnerFrames = new[]
+    {
+        "⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"
+    };
 
     [Parameter]
     [ValidateRange(100, 60000)]
-    public int RefreshMilliseconds { get; set; } = 1000;
+    public int RefreshMilliseconds { get; set; } = 500;
 
     [Parameter]
     public SwitchParameter ExitWhenIdle { get; set; }
@@ -28,14 +32,16 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
         var refresh = TimeSpan.FromMilliseconds(RefreshMilliseconds);
         var manager = RunspaceTaskManager.Instance;
 
-        var initial = BuildTable(manager.GetTasks(), IncludeProgress.IsPresent);
+        var spinIndex = 0;
+        var initial = BuildTable(manager.GetTasks(), IncludeProgress.IsPresent, SpinnerFrames[spinIndex % SpinnerFrames.Length]);
         AnsiConsole.Live(initial)
             .Start(ctx =>
             {
                 while (!_cts.IsCancellationRequested)
                 {
                     var tasks = manager.GetTasks();
-                    var table = BuildTable(tasks, IncludeProgress.IsPresent);
+                    spinIndex = (spinIndex + 1) % SpinnerFrames.Length;
+                    var table = BuildTable(tasks, IncludeProgress.IsPresent, SpinnerFrames[spinIndex]);
                     ctx.UpdateTarget(table);
                     ctx.Refresh();
 
@@ -57,12 +63,13 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
             });
     }
 
-    private static Table BuildTable(IEnumerable<RunspaceTask> tasks, bool includeProgress)
+    private static Table BuildTable(IEnumerable<RunspaceTask> tasks, bool includeProgress, string spinnerFrame)
     {
         var table = new Table()
             .Border(TableBorder.Rounded)
             .Expand()
             .AddColumn(new TableColumn("Id"))
+            .AddColumn(new TableColumn("Name"))
             .AddColumn(new TableColumn("Status"))
             .AddColumn(new TableColumn("Created"))
             .AddColumn(new TableColumn("Started"))
@@ -77,7 +84,8 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
             any = true;
             table.AddRow(
                 new Markup(Markup.Escape(task.Id.ToString())),
-                new Markup(StatusMarkup(task.Status)),
+                new Markup(Markup.Escape(task.Name ?? string.Empty)),
+                StatusMarkup(task.Status, spinnerFrame),
                 new Markup(Markup.Escape(FormatTime(task.CreatedAt))),
                 new Markup(Markup.Escape(FormatTime(task.StartedAt))),
                 new Markup(Markup.Escape(FormatTime(task.CompletedAt))),
@@ -130,10 +138,10 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
         return progress.StatusDescription ?? string.Empty;
     }
 
-    private static string StatusMarkup(RunspaceTaskStatus status)
+    private static Markup StatusMarkup(RunspaceTaskStatus status, string frame)
     {
         var text = status.ToString();
-        return status switch
+        var markup = status switch
         {
             RunspaceTaskStatus.Completed => $"[green]{text}[/]",
             RunspaceTaskStatus.Running => $"[cyan]{text}[/]",
@@ -144,5 +152,13 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
             RunspaceTaskStatus.TimedOut => $"[yellow]{text}[/]",
             _ => text
         };
+
+        if (status is RunspaceTaskStatus.Running or RunspaceTaskStatus.Scheduled or RunspaceTaskStatus.Created)
+        {
+            var spin = $"[cyan]{frame}[/]";
+            return new Markup($"{spin} {markup}");
+        }
+
+        return new Markup(markup);
     }
 }

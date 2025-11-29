@@ -196,11 +196,15 @@ public sealed class RunspaceTaskManager : IDisposable
         }
     }
 
-    public RunspaceTask StartTask(ScriptBlock scriptBlock, object[]? arguments, TimeSpan? timeout)
+    public RunspaceTask StartTask(ScriptBlock scriptBlock, object[]? arguments, TimeSpan? timeout, string? name = null)
     {
         ThrowIfDisposed();
 
         var task = new RunspaceTask(scriptBlock, arguments ?? Array.Empty<object>(), timeout);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            task.Name = name.Trim();
+        }
         if (!_tasks.TryAdd(task.Id, task))
         {
             throw new InvalidOperationException("Failed to track new task.");

@@ -20,6 +20,7 @@ public sealed class RunspaceTask
         ScriptBlock = scriptBlock ?? throw new ArgumentNullException(nameof(scriptBlock));
         ArgumentList = arguments ?? Array.Empty<object>();
         Timeout = timeout;
+        Name = string.Empty;
         Id = Guid.NewGuid();
         CreatedAt = DateTimeOffset.UtcNow;
         Status = RunspaceTaskStatus.Created;
@@ -27,6 +28,8 @@ public sealed class RunspaceTask
     }
 
     public Guid Id { get; }
+
+    public string Name { get; internal set; }
 
     public RunspaceTaskStatus Status { get; private set; }
 

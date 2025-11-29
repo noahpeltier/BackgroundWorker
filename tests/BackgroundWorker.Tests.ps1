@@ -26,10 +26,11 @@ Describe 'BackgroundWorker module' {
     }
 
     It 'completes a simple task and returns output' {
-        $task = Start-RunspaceTask { param($ms) Start-Sleep -Milliseconds $ms; "done-$ms" } -ArgumentList 50
+        $task = Start-RunspaceTask -Name 'Simple' { param($ms) Start-Sleep -Milliseconds $ms; "done-$ms" } -ArgumentList 50
         Wait-RunspaceTask -Task $task -TimeoutSeconds 5 | Out-Null
 
         $task.Status | Should -Be ([BackgroundWorker.RunspaceTaskStatus]::Completed)
+        $task.Name | Should -Be 'Simple'
         (Receive-RunspaceTask -Task $task) | Should -Contain 'done-50'
     }
 

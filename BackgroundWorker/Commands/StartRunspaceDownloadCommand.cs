@@ -71,6 +71,9 @@ else {
     public string? Destination { get; set; }
 
     [Parameter]
+    public string? Name { get; set; }
+
+    [Parameter]
     public SwitchParameter UseBits { get; set; }
 
     [Parameter]
@@ -101,7 +104,8 @@ else {
             DownloadTimeoutSeconds.GetValueOrDefault()
         };
 
-        var task = RunspaceTaskManager.Instance.StartTask(DownloadScript, args, timeout);
+        var taskName = !string.IsNullOrWhiteSpace(Name) ? Name : GetFileNameFromUrl() ?? Url;
+        var task = RunspaceTaskManager.Instance.StartTask(DownloadScript, args, timeout, taskName);
         WriteObject(task);
     }
 

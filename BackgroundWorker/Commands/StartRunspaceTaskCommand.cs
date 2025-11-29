@@ -14,6 +14,9 @@ public sealed class StartRunspaceTaskCommand : PSCmdlet
     public object[]? ArgumentList { get; set; }
 
     [Parameter]
+    public string? Name { get; set; }
+
+    [Parameter]
     [ValidateRange(1, int.MaxValue)]
     public int? TimeoutSeconds { get; set; }
 
@@ -22,7 +25,7 @@ public sealed class StartRunspaceTaskCommand : PSCmdlet
         TimeSpan? timeout = TimeoutSeconds.HasValue
             ? TimeSpan.FromSeconds(TimeoutSeconds.Value)
             : null;
-        var task = RunspaceTaskManager.Instance.StartTask(ScriptBlock, ArgumentList, timeout);
+        var task = RunspaceTaskManager.Instance.StartTask(ScriptBlock, ArgumentList, timeout, Name);
         WriteObject(task);
     }
 }
