@@ -15,3 +15,6 @@ artifacts/
 # Logs/temp
 *.log
 *.tmp
+
+# Personal/idea notes
+ideas/
