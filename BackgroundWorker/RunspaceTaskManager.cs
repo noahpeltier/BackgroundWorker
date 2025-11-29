@@ -66,6 +66,35 @@ public sealed class RunspaceTaskManager : IDisposable
         return task;
     }
 
+    public IReadOnlyCollection<RunspaceTask> RemoveTasks(IEnumerable<RunspaceTask> tasks)
+    {
+        ThrowIfDisposed();
+
+        var removed = new List<RunspaceTask>();
+        foreach (var task in tasks)
+        {
+            if (task is null)
+            {
+                continue;
+            }
+
+            if (!_tasks.TryGetValue(task.Id, out var tracked))
+            {
+                continue;
+            }
+
+            if (tracked.Status is RunspaceTaskStatus.Created or RunspaceTaskStatus.Scheduled or RunspaceTaskStatus.Running)
+            {
+                throw new InvalidOperationException($"Task {tracked.Id} is still running; stop it before removing.");
+            }
+
+            _tasks.TryRemove(tracked.Id, out _);
+            removed.Add(tracked);
+        }
+
+        return removed;
+    }
+
     public RunspaceSchedulerSettings GetSettings()
     {
         ThrowIfDisposed();

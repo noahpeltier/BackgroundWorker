@@ -23,9 +23,21 @@
             <TableColumnItems>
               <TableColumnItem><PropertyName>Id</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>Status</PropertyName></TableColumnItem>
-              <TableColumnItem><PropertyName>CreatedAt</PropertyName></TableColumnItem>
-              <TableColumnItem><PropertyName>StartedAt</PropertyName></TableColumnItem>
-              <TableColumnItem><PropertyName>CompletedAt</PropertyName></TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>
+                  if ($_.CreatedAt) { $_.CreatedAt.ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss') }
+                </ScriptBlock>
+              </TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>
+                  if ($_.StartedAt) { $_.StartedAt.ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss') }
+                </ScriptBlock>
+              </TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>
+                  if ($_.CompletedAt) { $_.CompletedAt.Value.ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss') }
+                </ScriptBlock>
+              </TableColumnItem>
               <TableColumnItem>
                 <ScriptBlock>
                   if ($_.Duration) { $_.Duration }

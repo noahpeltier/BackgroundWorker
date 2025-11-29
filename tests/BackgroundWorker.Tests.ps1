@@ -95,4 +95,20 @@ Describe 'BackgroundWorker module' {
         $caught | Should -Not -BeNullOrEmpty
         $caught.Exception.Message | Should -Match 'Failed to import modules'
     }
+
+    It 'removes completed tasks' {
+        $task = Start-RunspaceTask { 'done' }
+        Wait-RunspaceTask -Task $task -TimeoutSeconds 5 | Out-Null
+
+        Remove-RunspaceTask -Task $task | Out-Null
+        (Get-RunspaceTask | Where-Object Id -eq $task.Id).Count | Should -Be 0
+    }
+
+    It 'refuses to remove running tasks' {
+        $task = Start-RunspaceTask { Start-Sleep -Seconds 2 }
+        { Remove-RunspaceTask -Task $task } | Should -Throw
+        Stop-RunspaceTask -Task $task | Out-Null
+        Wait-RunspaceTask -Task $task -TimeoutSeconds 5 | Out-Null
+        Remove-RunspaceTask -Task $task | Out-Null
+    }
 }
