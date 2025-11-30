@@ -96,6 +96,32 @@ Describe 'BackgroundWorker module' {
         $state.Variables['Answer'] | Should -Be 41
     }
 
+    It 'runs init script once per runspace' {
+        $origSched = Get-RunspaceScheduler
+        $origSession = Get-RunspaceSessionState
+        try {
+            Set-RunspaceScheduler -MinRunspaces 1 -MaxRunspaces 1 | Out-Null
+            Set-RunspaceSessionState -InitScript {
+                if (-not (Get-Variable -Name Count -Scope Global -ErrorAction SilentlyContinue)) {
+                    $Global:Count = 0
+                }
+                $Global:Count++
+            } | Out-Null
+
+            $t1 = Start-RunspaceTask { $Global:Count }
+            Wait-RunspaceTask -Task $t1 -TimeoutSeconds 5 | Out-Null
+            $t2 = Start-RunspaceTask { $Global:Count }
+            Wait-RunspaceTask -Task $t2 -TimeoutSeconds 5 | Out-Null
+
+            (Receive-RunspaceTask -Task $t1) | Should -Contain 1
+            (Receive-RunspaceTask -Task $t2) | Should -Contain 1
+        }
+        finally {
+            Set-RunspaceSessionState -Module $origSession.Modules -Variable ([hashtable]$origSession.Variables) -InitScript $origSession.InitScript | Out-Null
+            Set-RunspaceScheduler -MinRunspaces $origSched.MinRunspaces -MaxRunspaces $origSched.MaxRunspaces -RetentionMinutes ([int]$origSched.Retention.TotalMinutes) | Out-Null
+        }
+    }
+
     It 'reports module availability' {
         $results = Test-RunspaceModule -Module 'Microsoft.PowerShell.Management', 'DefinitelyMissingModule.ForTest'
         ($results | Where-Object Name -eq 'Microsoft.PowerShell.Management').Available | Should -BeTrue

@@ -23,6 +23,7 @@ public sealed class RunspaceTaskManager : IDisposable
     private TimeSpan _retention;
     private List<string> _importModules = new();
     private Dictionary<string, object> _sessionVariables = new();
+    private ScriptBlock? _initScript;
     private bool _disposed;
 
     public event EventHandler<RunspaceTaskEventArgs>? TaskEvent;
@@ -163,12 +164,13 @@ public sealed class RunspaceTaskManager : IDisposable
             return new RunspaceSessionSettings
             {
                 Modules = _importModules.ToArray(),
-                Variables = new Dictionary<string, object>(_sessionVariables)
+                Variables = new Dictionary<string, object>(_sessionVariables),
+                InitScript = _initScript
             };
         }
     }
 
-    public RunspaceSessionSettings ConfigureSession(IEnumerable<string>? modules, IDictionary<string, object>? variables)
+    public RunspaceSessionSettings ConfigureSession(IEnumerable<string>? modules, IDictionary<string, object>? variables, ScriptBlock? initScript)
     {
         ThrowIfDisposed();
 
@@ -191,6 +193,7 @@ public sealed class RunspaceTaskManager : IDisposable
 
             _importModules = nextModules;
             _sessionVariables = nextVariables;
+            _initScript = initScript;
 
             return GetSessionSettings();
         }
@@ -321,7 +324,22 @@ public sealed class RunspaceTaskManager : IDisposable
                 IAsyncResult asyncResult;
                 try
                 {
-                    ps.AddScript(task.ScriptBlock.ToString(), useLocalScope: true);
+                    var scriptText = task.ScriptBlock.ToString();
+                    if (sessionSnapshot.InitScript is not null)
+                    {
+                        var initText = sessionSnapshot.InitScript.ToString();
+                        scriptText = $@"
+$state = $ExecutionContext.SessionState
+if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyContinue)) {{
+    Set-Variable -Name 'BWInitRan' -Scope Global -Value $true -Force
+    & ([scriptblock]::Create(@'
+{initText}
+'@))
+}}
+{scriptText}";
+                    }
+
+                    ps.AddScript(scriptText, useLocalScope: true);
                     if (task.ArgumentList.Length > 0)
                     {
                         foreach (var arg in task.ArgumentList)
@@ -458,10 +476,9 @@ public sealed class RunspaceTaskManager : IDisposable
         }
 
         var initialState = InitialSessionState.CreateDefault2();
-        if (modules.Count > 0)
-        {
-            initialState.ImportPSModule(modules.ToArray());
-        }
+        var baseModules = new[] { "Microsoft.PowerShell.Management", "Microsoft.PowerShell.Utility" };
+        var toImport = baseModules.Concat(modules).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        initialState.ImportPSModule(toImport);
 
         if (variables.Count > 0)
         {

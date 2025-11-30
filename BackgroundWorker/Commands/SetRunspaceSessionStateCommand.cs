@@ -14,6 +14,9 @@ public sealed class SetRunspaceSessionStateCommand : PSCmdlet
     [Parameter]
     public Hashtable? Variable { get; set; }
 
+    [Parameter]
+    public ScriptBlock? InitScript { get; set; }
+
     protected override void ProcessRecord()
     {
         IDictionary<string, object>? variables = null;
@@ -31,7 +34,7 @@ public sealed class SetRunspaceSessionStateCommand : PSCmdlet
             }
         }
 
-        var settings = RunspaceTaskManager.Instance.ConfigureSession(Module, variables);
+        var settings = RunspaceTaskManager.Instance.ConfigureSession(Module, variables, InitScript);
         WriteObject(settings);
     }
 }

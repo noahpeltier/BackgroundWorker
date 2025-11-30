@@ -14,6 +14,7 @@ Run background PowerShell work in a shared runspace pool with progress, cancella
 
 ## Session state (modules/variables)
 - Configure defaults for all runspace tasks: `Set-RunspaceSessionState -Module 'MyModule' -Variable @{ PSModulePath = "$env:PSModulePath;/extra/path" }`
+- Run one-time setup per runspace: `Set-RunspaceSessionState -InitScript { $Global:TenantId = 'abc'; Import-Module MyModule }`
 - The pool must be idle to change session state; if tasks are running you’ll get a friendly error—wait or stop them first.
 - Validate modules before setting them: `Test-RunspaceModule -Module 'MyModule','OtherModule'`
 - If a module isn’t found, you’ll get a clear error that includes `PSModulePath`; add the correct path or install the module.

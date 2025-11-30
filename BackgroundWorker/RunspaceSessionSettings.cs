@@ -1,4 +1,6 @@
-﻿namespace BackgroundWorker;
+﻿using System.Management.Automation;
+
+namespace BackgroundWorker;
 
 /// <summary>
 /// Snapshot of session defaults applied to each runspace task.
@@ -9,4 +11,6 @@ public sealed class RunspaceSessionSettings
 
     public IReadOnlyDictionary<string, object> Variables { get; init; } =
         new Dictionary<string, object>();
+
+    public ScriptBlock? InitScript { get; init; }
 }
