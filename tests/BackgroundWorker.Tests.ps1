@@ -73,6 +73,24 @@ Describe 'BackgroundWorker module' {
         ($task.LastProgress.PercentComplete) | Should -Be 100
     }
 
+    It 'runs a script file with arguments' {
+        $scriptPath = Join-Path ([System.IO.Path]::GetTempPath()) "bw-test-$([guid]::NewGuid()).ps1"
+        try {
+            Set-Content -Path $scriptPath -Value 'param($name) "hello $name"'
+            $task = Start-RunspaceTask -Script $scriptPath -ArgumentList 'world'
+            Wait-RunspaceTask -Task $task -TimeoutSeconds 5 | Out-Null
+            (Receive-RunspaceTask -Task $task) | Should -Contain 'hello world'
+        }
+        finally {
+            Remove-Item $scriptPath -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'throws when script file is missing' {
+        $missing = Join-Path ([System.IO.Path]::GetTempPath()) "bw-missing-$([guid]::NewGuid()).ps1"
+        { Start-RunspaceTask -Script $missing } | Should -Throw
+    }
+
     It 'applies configured session variables' {
         $state = Set-RunspaceSessionState -Variable @{ Answer = 41 }
         $state.Variables['Answer'] | Should -Be 41

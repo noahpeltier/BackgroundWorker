@@ -6,6 +6,7 @@ Run background PowerShell work in a shared runspace pool with progress, cancella
 - Build (Release): `DOTNET_CLI_HOME=/tmp dotnet build BackgroundWorker/BackgroundWorker.csproj -c Release`
 - Import: `Import-Module ./BackgroundWorker/BackgroundWorker.psd1`
 - Run: `$t = Start-RunspaceTask { 1..3 | ForEach-Object { Start-Sleep 1; $_ } }`
+- Run from file: `$t = Start-RunspaceTask -Script ./mytask.ps1 -ArgumentList 'hello'`
 - Observe: `Get-RunspaceTask` and `Receive-RunspaceTask -Task $t`
 - Cancel/timeout: `Stop-RunspaceTask -Task $t` or `Start-RunspaceTask -TimeoutSeconds 60 { ... }`
 - Name tasks: `Start-RunspaceTask -Name 'Download ISO' { ... }` and see names in tables/live view
