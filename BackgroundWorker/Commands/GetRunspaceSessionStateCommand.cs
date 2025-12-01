@@ -8,9 +8,13 @@ namespace BackgroundWorker.Commands;
 [OutputType(typeof(RunspaceSessionSettings))]
 public sealed class GetRunspaceSessionStateCommand : PSCmdlet
 {
+    [Parameter]
+    [ArgumentCompleter(typeof(PoolNameCompleter))]
+    public string? Pool { get; set; }
+
     protected override void ProcessRecord()
     {
-        var settings = RunspaceTaskManager.Instance.GetSessionSettings();
+        var settings = RunspaceTaskManager.Instance.GetSessionSettings(Pool ?? "default");
         WriteObject(settings);
     }
 }

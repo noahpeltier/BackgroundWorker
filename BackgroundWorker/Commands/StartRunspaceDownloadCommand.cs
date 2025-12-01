@@ -84,6 +84,10 @@ else {
     [ValidateRange(1, int.MaxValue)]
     public int? DownloadTimeoutSeconds { get; set; }
 
+    [Parameter]
+    [ArgumentCompleter(typeof(PoolNameCompleter))]
+    public string? Pool { get; set; }
+
     protected override void ProcessRecord()
     {
         if (UseBits && !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -105,7 +109,7 @@ else {
         };
 
         var taskName = !string.IsNullOrWhiteSpace(Name) ? Name : GetFileNameFromUrl() ?? Url;
-        var task = RunspaceTaskManager.Instance.StartTask(DownloadScript, args, timeout, taskName);
+        var task = RunspaceTaskManager.Instance.StartTask(DownloadScript, args, timeout, taskName, Pool);
         WriteObject(task);
     }
 

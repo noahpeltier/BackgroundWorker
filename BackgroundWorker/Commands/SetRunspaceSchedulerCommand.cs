@@ -19,6 +19,10 @@ public sealed class SetRunspaceSchedulerCommand : PSCmdlet
     [ValidateRange(1, int.MaxValue)]
     public int? RetentionMinutes { get; set; }
 
+    [Parameter]
+    [ArgumentCompleter(typeof(PoolNameCompleter))]
+    public string? Pool { get; set; }
+
     protected override void ProcessRecord()
     {
         TimeSpan? retention = null;
@@ -27,7 +31,7 @@ public sealed class SetRunspaceSchedulerCommand : PSCmdlet
             retention = TimeSpan.FromMinutes(RetentionMinutes.Value);
         }
 
-        var settings = RunspaceTaskManager.Instance.Configure(MinRunspaces, MaxRunspaces, retention);
+        var settings = RunspaceTaskManager.Instance.Configure(Pool ?? "default", MinRunspaces, MaxRunspaces, retention);
         WriteObject(settings);
     }
 }

@@ -10,10 +10,14 @@ public sealed class GetRunspaceTaskCommand : PSCmdlet
     [Parameter(ValueFromPipeline = true, ValueFromPipelineByPropertyName = true)]
     public Guid[]? Id { get; set; }
 
+    [Parameter]
+    [ArgumentCompleter(typeof(PoolNameCompleter))]
+    public string? Pool { get; set; }
+
     protected override void ProcessRecord()
     {
         var ids = Id is { Length: > 0 } ? Id : null;
-        var tasks = RunspaceTaskManager.Instance.GetTasks(ids);
+        var tasks = RunspaceTaskManager.Instance.GetTasks(Pool, ids);
         foreach (var task in tasks)
         {
             WriteObject(task);
