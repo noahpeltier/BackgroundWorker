@@ -13,58 +13,147 @@ namespace BackgroundWorker;
 /// </summary>
 public sealed class RunspaceTaskManager : IDisposable
 {
-    private RunspacePool _pool;
-    private readonly ConcurrentDictionary<Guid, RunspaceTask> _tasks = new();
-    private readonly SemaphoreSlim _throttle;
+    private const string DefaultPoolName = "default";
+
+    private sealed class PoolContext : IDisposable
+    {
+        public string Name { get; init; } = string.Empty;
+        public RunspacePool Pool { get; set; } = default!;
+        public SemaphoreSlim Throttle { get; set; } = default!;
+        public ConcurrentDictionary<Guid, RunspaceTask> Tasks { get; } = new();
+        public int MinRunspaces { get; set; }
+        public int MaxRunspaces { get; set; }
+        public TimeSpan Retention { get; set; }
+        public List<string> ImportModules { get; set; } = new();
+        public Dictionary<string, object> SessionVariables { get; set; } = new();
+        public ScriptBlock? InitScript { get; set; }
+
+        public void Dispose()
+        {
+            Pool.Dispose();
+            Throttle.Dispose();
+        }
+    }
+
+    private readonly ConcurrentDictionary<string, PoolContext> _pools = new(StringComparer.OrdinalIgnoreCase);
     private readonly Timer _cleanupTimer;
     private readonly object _configLock = new();
-    private int _minRunspaces;
-    private int _maxRunspaces;
-    private TimeSpan _retention;
-    private List<string> _importModules = new();
-    private Dictionary<string, object> _sessionVariables = new();
-    private ScriptBlock? _initScript;
     private bool _disposed;
 
     public event EventHandler<RunspaceTaskEventArgs>? TaskEvent;
 
     private RunspaceTaskManager(int minRunspaces, int maxRunspaces)
     {
-        var initialState = InitialSessionState.CreateDefault2();
-        initialState.ImportPSModule(new[] { "Microsoft.PowerShell.Management", "Microsoft.PowerShell.Utility" });
-        _pool = RunspaceFactory.CreateRunspacePool(initialState);
-        _pool.SetMinRunspaces(minRunspaces);
-        _pool.SetMaxRunspaces(maxRunspaces);
-        _pool.ApartmentState = ApartmentState.MTA;
-        _pool.Open();
-        _minRunspaces = minRunspaces;
-        _maxRunspaces = maxRunspaces;
-        _retention = TimeSpan.FromMinutes(30);
-        _throttle = new SemaphoreSlim(maxRunspaces, maxRunspaces);
         _cleanupTimer = new Timer(_ => PruneExpired(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        CreateOrGetPool(DefaultPoolName, minRunspaces, maxRunspaces);
     }
 
     public static RunspaceTaskManager Instance { get; } =
         new(minRunspaces: 1, maxRunspaces: Math.Max(2, Environment.ProcessorCount));
 
-    public IEnumerable<RunspaceTask> GetTasks(IEnumerable<Guid>? ids = null)
+    public IEnumerable<RunspaceTask> GetTasks(string? poolName = null, IEnumerable<Guid>? ids = null)
     {
         ThrowIfDisposed();
 
+        IEnumerable<RunspaceTask> source = poolName is null
+            ? _pools.Values.SelectMany(p => p.Tasks.Values)
+            : GetPool(poolName).Tasks.Values;
+
         if (ids is null)
         {
-            return _tasks.Values.OrderBy(t => t.CreatedAt).ToArray();
+            return source.OrderBy(t => t.CreatedAt).ToArray();
         }
 
         var set = new HashSet<Guid>(ids);
-        return _tasks.Values.Where(t => set.Contains(t.Id)).OrderBy(t => t.CreatedAt).ToArray();
+        return source.Where(t => set.Contains(t.Id)).OrderBy(t => t.CreatedAt).ToArray();
     }
 
     public RunspaceTask? GetTask(Guid id)
     {
         ThrowIfDisposed();
-        _tasks.TryGetValue(id, out var task);
-        return task;
+        foreach (var pool in _pools.Values)
+        {
+            if (pool.Tasks.TryGetValue(id, out var task))
+            {
+                return task;
+            }
+        }
+
+        return null;
+    }
+
+    public IEnumerable<RunspacePoolInfo> GetPools(string? poolName = null)
+    {
+        ThrowIfDisposed();
+        var pools = poolName is null ? _pools.Values : new[] { GetPool(poolName) };
+        return pools.Select(p => new RunspacePoolInfo
+        {
+            Name = p.Name,
+            MinRunspaces = p.MinRunspaces,
+            MaxRunspaces = p.MaxRunspaces,
+            Retention = p.Retention,
+            Modules = p.ImportModules.ToArray(),
+            InitScript = p.InitScript,
+            TaskCount = p.Tasks.Count,
+            RunningTasks = p.Tasks.Values.Count(t => t.Status is RunspaceTaskStatus.Running or RunspaceTaskStatus.Scheduled or RunspaceTaskStatus.Created)
+        }).ToArray();
+    }
+
+    public RunspacePoolInfo CreatePool(string poolName, int? minRunspaces, int? maxRunspaces, TimeSpan? retention, IEnumerable<string>? modules, IDictionary<string, object>? variables, ScriptBlock? initScript)
+    {
+        ThrowIfDisposed();
+
+        var moduleList = modules?.Where(m => !string.IsNullOrWhiteSpace(m)).Select(m => m.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (moduleList is not null)
+        {
+            ValidateModules(moduleList);
+        }
+
+        var ctx = CreateOrGetPool(poolName, minRunspaces, maxRunspaces, retention, moduleList, variables, initScript);
+
+        // If pool already existed and settings supplied, apply updates
+        if (minRunspaces.HasValue || maxRunspaces.HasValue || retention.HasValue)
+        {
+            Configure(poolName, minRunspaces, maxRunspaces, retention);
+        }
+
+        if (modules is not null || variables is not null || initScript is not null)
+        {
+            ConfigureSession(poolName, modules, variables, initScript);
+        }
+
+        return GetPools(poolName).Single();
+    }
+
+    public void RemovePool(string poolName, bool force = false)
+    {
+        ThrowIfDisposed();
+        if (string.Equals(poolName, DefaultPoolName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The default pool cannot be removed.");
+        }
+
+        if (!_pools.TryGetValue(poolName, out var ctx))
+        {
+            return;
+        }
+
+        var running = ctx.Tasks.Values.Any(t => t.Status is RunspaceTaskStatus.Created or RunspaceTaskStatus.Scheduled or RunspaceTaskStatus.Running);
+        if (running && !force)
+        {
+            throw new InvalidOperationException($"Pool '{poolName}' has running tasks. Stop them or use -Force.");
+        }
+
+        if (force)
+        {
+            foreach (var task in ctx.Tasks.Values)
+            {
+                task.Cancellation.Cancel();
+            }
+        }
+
+        ctx.Dispose();
+        _pools.TryRemove(poolName, out _);
     }
 
     public IReadOnlyCollection<RunspaceTask> RemoveTasks(IEnumerable<RunspaceTask> tasks)
@@ -79,7 +168,9 @@ public sealed class RunspaceTaskManager : IDisposable
                 continue;
             }
 
-            if (!_tasks.TryGetValue(task.Id, out var tracked))
+            var pool = GetPool(task.PoolName);
+
+            if (!pool.Tasks.TryGetValue(task.Id, out var tracked))
             {
                 continue;
             }
@@ -89,35 +180,37 @@ public sealed class RunspaceTaskManager : IDisposable
                 throw new InvalidOperationException($"Task {tracked.Id} is still running; stop it before removing.");
             }
 
-            _tasks.TryRemove(tracked.Id, out _);
+            pool.Tasks.TryRemove(tracked.Id, out _);
             removed.Add(tracked);
         }
 
         return removed;
     }
 
-    public RunspaceSchedulerSettings GetSettings()
+    public RunspaceSchedulerSettings GetSettings(string? poolName = null)
     {
         ThrowIfDisposed();
+        var target = GetPool(poolName ?? DefaultPoolName);
         lock (_configLock)
         {
             return new RunspaceSchedulerSettings
             {
-                MinRunspaces = _minRunspaces,
-                MaxRunspaces = _maxRunspaces,
-                Retention = _retention
+                MinRunspaces = target.MinRunspaces,
+                MaxRunspaces = target.MaxRunspaces,
+                Retention = target.Retention
             };
         }
     }
 
-    public RunspaceSchedulerSettings Configure(int? minRunspaces, int? maxRunspaces, TimeSpan? retention)
+    public RunspaceSchedulerSettings Configure(string poolName, int? minRunspaces, int? maxRunspaces, TimeSpan? retention)
     {
         ThrowIfDisposed();
+        var target = GetPool(poolName);
 
         lock (_configLock)
         {
-            var desiredMin = minRunspaces ?? _minRunspaces;
-            var desiredMax = maxRunspaces ?? _maxRunspaces;
+            var desiredMin = minRunspaces ?? target.MinRunspaces;
+            var desiredMax = maxRunspaces ?? target.MaxRunspaces;
 
             if (desiredMin < 1)
             {
@@ -129,50 +222,52 @@ public sealed class RunspaceTaskManager : IDisposable
                 throw new ArgumentException("Max runspaces must be greater than or equal to min runspaces.");
             }
 
-        if (desiredMax != _maxRunspaces)
-        {
-            AdjustThrottle(desiredMax);
-            _pool.SetMaxRunspaces(desiredMax);
-            _maxRunspaces = desiredMax;
-        }
+            if (desiredMax != target.MaxRunspaces)
+            {
+                AdjustThrottle(target, desiredMax);
+                target.Pool.SetMaxRunspaces(desiredMax);
+                target.MaxRunspaces = desiredMax;
+            }
 
-        if (desiredMin != _minRunspaces)
-        {
-            _pool.SetMinRunspaces(desiredMin);
-            _minRunspaces = desiredMin;
-        }
+            if (desiredMin != target.MinRunspaces)
+            {
+                target.Pool.SetMinRunspaces(desiredMin);
+                target.MinRunspaces = desiredMin;
+            }
 
-        if (retention.HasValue)
-        {
-            _retention = retention.Value;
+            if (retention.HasValue)
+            {
+                target.Retention = retention.Value;
             }
 
             return new RunspaceSchedulerSettings
             {
-                MinRunspaces = _minRunspaces,
-                MaxRunspaces = _maxRunspaces,
-                Retention = _retention
+                MinRunspaces = target.MinRunspaces,
+                MaxRunspaces = target.MaxRunspaces,
+                Retention = target.Retention
             };
         }
     }
 
-    public RunspaceSessionSettings GetSessionSettings()
+    public RunspaceSessionSettings GetSessionSettings(string? poolName = null)
     {
         ThrowIfDisposed();
+        var target = GetPool(poolName ?? DefaultPoolName);
         lock (_configLock)
         {
             return new RunspaceSessionSettings
             {
-                Modules = _importModules.ToArray(),
-                Variables = new Dictionary<string, object>(_sessionVariables),
-                InitScript = _initScript
+                Modules = target.ImportModules.ToArray(),
+                Variables = new Dictionary<string, object>(target.SessionVariables),
+                InitScript = target.InitScript
             };
         }
     }
 
-    public RunspaceSessionSettings ConfigureSession(IEnumerable<string>? modules, IDictionary<string, object>? variables, ScriptBlock? initScript)
+    public RunspaceSessionSettings ConfigureSession(string poolName, IEnumerable<string>? modules, IDictionary<string, object>? variables, ScriptBlock? initScript)
     {
         ThrowIfDisposed();
+        var target = GetPool(poolName);
 
         lock (_configLock)
         {
@@ -182,38 +277,43 @@ public sealed class RunspaceTaskManager : IDisposable
                     .Select(m => m.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList()
-                : new List<string>(_importModules);
+                : new List<string>(target.ImportModules);
 
             var nextVariables = variables is not null
                 ? new Dictionary<string, object>(variables, StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, object>(_sessionVariables, StringComparer.OrdinalIgnoreCase);
+                : new Dictionary<string, object>(target.SessionVariables, StringComparer.OrdinalIgnoreCase);
 
             ValidateModules(nextModules);
-            RebuildRunspacePoolIfIdle(nextModules, nextVariables);
+            RebuildRunspacePoolIfIdle(target, nextModules, nextVariables);
 
-            _importModules = nextModules;
-            _sessionVariables = nextVariables;
-            _initScript = initScript;
+            target.ImportModules = nextModules;
+            target.SessionVariables = nextVariables;
+            target.InitScript = initScript;
 
-            return GetSessionSettings();
+            return GetSessionSettings(poolName);
         }
     }
 
-    public RunspaceTask StartTask(ScriptBlock scriptBlock, object[]? arguments, TimeSpan? timeout, string? name = null)
+    public RunspaceTask StartTask(ScriptBlock scriptBlock, object[]? arguments, TimeSpan? timeout, string? name = null, string? poolName = null)
     {
         ThrowIfDisposed();
+
+        var targetPool = poolName ?? DefaultPoolName;
+        var ctx = CreateOrGetPool(targetPool);
 
         var task = new RunspaceTask(scriptBlock, arguments ?? Array.Empty<object>(), timeout);
         if (!string.IsNullOrWhiteSpace(name))
         {
             task.Name = name.Trim();
         }
-        if (!_tasks.TryAdd(task.Id, task))
+        task.PoolName = targetPool;
+
+        if (!ctx.Tasks.TryAdd(task.Id, task))
         {
             throw new InvalidOperationException("Failed to track new task.");
         }
 
-        var execution = ExecuteAsync(task);
+        var execution = ExecuteAsync(ctx, task);
         task.BindExecution(execution);
         PublishEvent(task, RunspaceTaskEventType.Created);
         return task;
@@ -265,15 +365,15 @@ public sealed class RunspaceTaskManager : IDisposable
         }
     }
 
-    private Task ExecuteAsync(RunspaceTask task)
+    private Task ExecuteAsync(PoolContext ctx, RunspaceTask task)
     {
         task.MarkScheduled();
 
-        var sessionSnapshot = GetSessionSettings();
+        var sessionSnapshot = GetSessionSettings(task.PoolName);
 
         return Task.Run(async () =>
         {
-            await _throttle.WaitAsync().ConfigureAwait(false);
+            await ctx.Throttle.WaitAsync().ConfigureAwait(false);
             try
             {
                 if (task.Cancellation.IsCancellationRequested)
@@ -286,7 +386,7 @@ public sealed class RunspaceTaskManager : IDisposable
                 task.MarkRunning();
                 PublishEvent(task, RunspaceTaskEventType.Started);
                 using var ps = PowerShell.Create();
-                ps.RunspacePool = _pool;
+                ps.RunspacePool = ctx.Pool;
 
                 var output = new PSDataCollection<PSObject>();
                 output.DataAdded += (_, args) =>
@@ -399,7 +499,7 @@ if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyCont
             }
             finally
             {
-                _throttle.Release();
+                ctx.Throttle.Release();
             }
         });
     }
@@ -416,9 +516,9 @@ if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyCont
         return CancellationTokenSource.CreateLinkedTokenSource(task.Cancellation.Token);
     }
 
-    private void AdjustThrottle(int desiredMax)
+    private void AdjustThrottle(PoolContext ctx, int desiredMax)
     {
-        var currentMax = _maxRunspaces;
+        var currentMax = ctx.MaxRunspaces;
         var delta = desiredMax - currentMax;
         if (delta == 0)
         {
@@ -427,13 +527,13 @@ if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyCont
 
         if (delta > 0)
         {
-            _throttle.Release(delta);
+            ctx.Throttle.Release(delta);
         }
         else
         {
             for (var i = 0; i < Math.Abs(delta); i++)
             {
-                _throttle.Wait();
+                ctx.Throttle.Wait();
             }
         }
     }
@@ -466,9 +566,9 @@ if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyCont
             $"Failed to import modules. Missing: {details}. Ensure they are installed and visible in PSModulePath: {psModulePath}");
     }
 
-    private void RebuildRunspacePoolIfIdle(IReadOnlyList<string> modules, IReadOnlyDictionary<string, object> variables)
+    private void RebuildRunspacePoolIfIdle(PoolContext ctx, IReadOnlyList<string> modules, IReadOnlyDictionary<string, object> variables)
     {
-        var active = _tasks.Values.Any(t =>
+        var active = ctx.Tasks.Values.Any(t =>
             t.Status is RunspaceTaskStatus.Created or RunspaceTaskStatus.Scheduled or RunspaceTaskStatus.Running);
         if (active)
         {
@@ -489,13 +589,13 @@ if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyCont
         }
 
         var newPool = RunspaceFactory.CreateRunspacePool(initialState);
-        newPool.SetMinRunspaces(_minRunspaces);
-        newPool.SetMaxRunspaces(_maxRunspaces);
+        newPool.SetMinRunspaces(ctx.MinRunspaces);
+        newPool.SetMaxRunspaces(ctx.MaxRunspaces);
         newPool.ApartmentState = ApartmentState.MTA;
         newPool.Open();
 
-        var oldPool = _pool;
-        _pool = newPool;
+        var oldPool = ctx.Pool;
+        ctx.Pool = newPool;
         oldPool.Dispose();
     }
 
@@ -507,12 +607,15 @@ if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyCont
         }
 
         var now = DateTimeOffset.UtcNow;
-        foreach (var kvp in _tasks)
+        foreach (var pool in _pools.Values)
         {
-            var task = kvp.Value;
-            if (task.CompletedAt.HasValue && now - task.CompletedAt.Value >= _retention)
+            foreach (var kvp in pool.Tasks)
             {
-                _tasks.TryRemove(kvp.Key, out _);
+                var task = kvp.Value;
+                if (task.CompletedAt.HasValue && now - task.CompletedAt.Value >= pool.Retention)
+                {
+                    pool.Tasks.TryRemove(kvp.Key, out _);
+                }
             }
         }
     }
@@ -523,6 +626,70 @@ if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyCont
         {
             throw new ObjectDisposedException(nameof(RunspaceTaskManager));
         }
+    }
+
+    private PoolContext GetPool(string poolName)
+    {
+        if (!_pools.TryGetValue(poolName, out var ctx))
+        {
+            throw new InvalidOperationException($"Runspace pool '{poolName}' does not exist. Create it first with New-RunspacePool or use the default.");
+        }
+
+        return ctx;
+    }
+
+    private PoolContext CreateOrGetPool(string poolName, int? minRunspaces = null, int? maxRunspaces = null, TimeSpan? retention = null,
+        IEnumerable<string>? modules = null, IDictionary<string, object>? variables = null, ScriptBlock? initScript = null)
+    {
+        return _pools.GetOrAdd(poolName, name =>
+        {
+            var min = minRunspaces ?? 1;
+            var max = maxRunspaces ?? Math.Max(2, Environment.ProcessorCount);
+            var retentionValue = retention ?? TimeSpan.FromMinutes(30);
+
+            var initialState = InitialSessionState.CreateDefault2();
+            var baseModules = new[] { "Microsoft.PowerShell.Management", "Microsoft.PowerShell.Utility" };
+            var toImport = baseModules;
+            if (modules is not null)
+            {
+                toImport = baseModules.Concat(modules).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            }
+            initialState.ImportPSModule(toImport);
+
+            if (variables is not null)
+            {
+                foreach (var kvp in variables)
+                {
+                    initialState.Variables.Add(new SessionStateVariableEntry(kvp.Key, kvp.Value, description: null, options: ScopedItemOptions.AllScope));
+                }
+            }
+
+            if (initScript is not null)
+            {
+                initialState.StartupScripts.Add(initScript.ToString());
+            }
+
+            var pool = RunspaceFactory.CreateRunspacePool(initialState);
+            pool.SetMinRunspaces(min);
+            pool.SetMaxRunspaces(max);
+            pool.ApartmentState = ApartmentState.MTA;
+            pool.Open();
+
+            var throttle = new SemaphoreSlim(max, max);
+
+            return new PoolContext
+            {
+                Name = poolName,
+                Pool = pool,
+                Throttle = throttle,
+                MinRunspaces = min,
+                MaxRunspaces = max,
+                Retention = retentionValue,
+                ImportModules = toImport.ToList(),
+                SessionVariables = variables is null ? new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) : new Dictionary<string, object>(variables, StringComparer.OrdinalIgnoreCase),
+                InitScript = initScript
+            };
+        });
     }
 
     private void PublishEvent(RunspaceTask task, RunspaceTaskEventType eventType, ProgressRecord? progress = null)
@@ -557,12 +724,14 @@ if (-not (Get-Variable -Name 'BWInitRan' -Scope Global -ErrorAction SilentlyCont
 
         _disposed = true;
         _cleanupTimer.Dispose();
-        foreach (var kvp in _tasks)
+        foreach (var pool in _pools.Values)
         {
-            kvp.Value.Cancellation.Cancel();
-        }
+            foreach (var task in pool.Tasks.Values)
+            {
+                task.Cancellation.Cancel();
+            }
 
-        _pool.Dispose();
-        _throttle.Dispose();
+            pool.Dispose();
+        }
     }
 }

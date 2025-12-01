@@ -32,6 +32,11 @@ public sealed class StartRunspaceTaskCommand : PSCmdlet
     [ValidateRange(1, int.MaxValue)]
     public int? TimeoutSeconds { get; set; }
 
+    [Parameter(ParameterSetName = ScriptBlockParameterSet)]
+    [Parameter(ParameterSetName = ScriptFileParameterSet)]
+    [ArgumentCompleter(typeof(PoolNameCompleter))]
+    public string? Pool { get; set; }
+
     protected override void ProcessRecord()
     {
         var blockToRun = ParameterSetName == ScriptFileParameterSet
@@ -41,7 +46,7 @@ public sealed class StartRunspaceTaskCommand : PSCmdlet
         TimeSpan? timeout = TimeoutSeconds.HasValue
             ? TimeSpan.FromSeconds(TimeoutSeconds.Value)
             : null;
-        var task = RunspaceTaskManager.Instance.StartTask(blockToRun, ArgumentList, timeout, Name);
+        var task = RunspaceTaskManager.Instance.StartTask(blockToRun, ArgumentList, timeout, Name, Pool);
         WriteObject(task);
     }
 

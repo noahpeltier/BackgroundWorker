@@ -23,6 +23,13 @@ Run background PowerShell work in a shared runspace pool with progress, cancella
 - Progress records are buffered: `Receive-RunspaceTaskProgress -Task $t`
 - Helper for file transfers: `Start-RunspaceDownload -Uri 'https://example/file' -Destination '/tmp/file.iso' -UseBits`
 
+## Multiple pools (isolation)
+- Default pool is `default`; existing commands keep using it.
+- Create another pool: `New-RunspacePool -Name TenantA -Module 'MyModule' -InitScript { Connect-TenantA }`
+- Start work in a specific pool: `Start-RunspaceTask -Pool TenantA { Invoke-MyTenantCmd }`
+- Inspect pools: `Get-RunspacePool` or `Get-RunspaceTask -Pool TenantA`
+- Remove when idle: `Remove-RunspacePool -Name TenantA`
+
 ## Testing
 - Pester suite: `pwsh -NoLogo -NoProfile -Command "Invoke-Pester -Script ./tests/BackgroundWorker.Tests.ps1 -Output Detailed"`
 

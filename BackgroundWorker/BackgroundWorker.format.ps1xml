@@ -9,6 +9,7 @@
       <TableControl>
         <AutoSize>true</AutoSize>
         <TableHeaders>
+          <TableColumnHeader><Label>Pool</Label></TableColumnHeader>
           <TableColumnHeader><Label>Id</Label></TableColumnHeader>
           <TableColumnHeader><Label>Name</Label></TableColumnHeader>
           <TableColumnHeader><Label>Status</Label></TableColumnHeader>
@@ -22,6 +23,7 @@
         <TableRowEntries>
           <TableRowEntry>
             <TableColumnItems>
+              <TableColumnItem><PropertyName>PoolName</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>Id</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>Name</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>Status</PropertyName></TableColumnItem>

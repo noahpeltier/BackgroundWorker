@@ -17,6 +17,10 @@ public sealed class SetRunspaceSessionStateCommand : PSCmdlet
     [Parameter]
     public ScriptBlock? InitScript { get; set; }
 
+    [Parameter]
+    [ArgumentCompleter(typeof(PoolNameCompleter))]
+    public string? Pool { get; set; }
+
     protected override void ProcessRecord()
     {
         IDictionary<string, object>? variables = null;
@@ -34,7 +38,7 @@ public sealed class SetRunspaceSessionStateCommand : PSCmdlet
             }
         }
 
-        var settings = RunspaceTaskManager.Instance.ConfigureSession(Module, variables, InitScript);
+        var settings = RunspaceTaskManager.Instance.ConfigureSession(Pool ?? "default", Module, variables, InitScript);
         WriteObject(settings);
     }
 }

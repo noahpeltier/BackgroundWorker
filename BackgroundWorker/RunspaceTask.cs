@@ -21,6 +21,7 @@ public sealed class RunspaceTask
         ArgumentList = arguments ?? Array.Empty<object>();
         Timeout = timeout;
         Name = string.Empty;
+        PoolName = "default";
         Id = Guid.NewGuid();
         CreatedAt = DateTimeOffset.UtcNow;
         Status = RunspaceTaskStatus.Created;
@@ -32,6 +33,8 @@ public sealed class RunspaceTask
     public string Name { get; internal set; }
 
     public RunspaceTaskStatus Status { get; private set; }
+
+    public string PoolName { get; internal set; }
 
     public DateTimeOffset CreatedAt { get; }
 

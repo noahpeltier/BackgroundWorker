@@ -22,6 +22,10 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
     [Parameter]
     public SwitchParameter IncludeProgress { get; set; }
 
+    [Parameter]
+    [ArgumentCompleter(typeof(PoolNameCompleter))]
+    public string? Pool { get; set; }
+
     protected override void StopProcessing()
     {
         _cts.Cancel();
@@ -33,13 +37,13 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
         var manager = RunspaceTaskManager.Instance;
 
         var spinIndex = 0;
-        var initial = BuildTable(manager.GetTasks(), IncludeProgress.IsPresent, SpinnerFrames[spinIndex % SpinnerFrames.Length]);
+        var initial = BuildTable(manager.GetTasks(Pool), IncludeProgress.IsPresent, SpinnerFrames[spinIndex % SpinnerFrames.Length]);
         AnsiConsole.Live(initial)
             .Start(ctx =>
             {
                 while (!_cts.IsCancellationRequested)
                 {
-                    var tasks = manager.GetTasks();
+                    var tasks = manager.GetTasks(Pool);
                     spinIndex = (spinIndex + 1) % SpinnerFrames.Length;
                     var table = BuildTable(tasks, IncludeProgress.IsPresent, SpinnerFrames[spinIndex]);
                     ctx.UpdateTarget(table);
@@ -68,6 +72,7 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
         var table = new Table()
             .Border(TableBorder.Rounded)
             .Expand()
+            .AddColumn(new TableColumn("Pool"))
             .AddColumn(new TableColumn("Id"))
             .AddColumn(new TableColumn("Name"))
             .AddColumn(new TableColumn("Status"))
@@ -83,6 +88,7 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
         {
             any = true;
             table.AddRow(
+                new Markup(Markup.Escape(task.PoolName)),
                 new Markup(Markup.Escape(task.Id.ToString())),
                 new Markup(Markup.Escape(task.Name ?? string.Empty)),
                 StatusMarkup(task.Status, spinnerFrame),

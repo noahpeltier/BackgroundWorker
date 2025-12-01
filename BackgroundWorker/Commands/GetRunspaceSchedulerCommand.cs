@@ -7,9 +7,13 @@ namespace BackgroundWorker.Commands;
 [OutputType(typeof(RunspaceSchedulerSettings))]
 public sealed class GetRunspaceSchedulerCommand : PSCmdlet
 {
+    [Parameter]
+    [ArgumentCompleter(typeof(PoolNameCompleter))]
+    public string? Pool { get; set; }
+
     protected override void ProcessRecord()
     {
-        var settings = RunspaceTaskManager.Instance.GetSettings();
+        var settings = RunspaceTaskManager.Instance.GetSettings(Pool ?? "default");
         WriteObject(settings);
     }
 }

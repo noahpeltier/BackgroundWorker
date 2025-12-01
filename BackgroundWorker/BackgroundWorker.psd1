@@ -23,7 +23,10 @@
         'Start-RunspaceDownload',
         'Get-RunspaceSessionState',
         'Set-RunspaceSessionState',
-        'Test-RunspaceModule'
+        'Test-RunspaceModule',
+        'New-RunspacePool',
+        'Get-RunspacePool',
+        'Remove-RunspacePool'
     )
     AliasesToExport      = @()
     FormatsToProcess     = @('BackgroundWorker.format.ps1xml')

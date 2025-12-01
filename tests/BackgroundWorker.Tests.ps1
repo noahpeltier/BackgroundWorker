@@ -122,6 +122,32 @@ Describe 'BackgroundWorker module' {
         }
     }
 
+    It 'isolates session state across pools' {
+        # Pool A with variable 1
+        New-RunspacePool -Name PoolA -Variable @{ Marker = 'A' } | Out-Null
+        # Pool B with variable 2
+        New-RunspacePool -Name PoolB -Variable @{ Marker = 'B' } | Out-Null
+
+        $tA = Start-RunspaceTask -Pool PoolA { $Marker }
+        $tB = Start-RunspaceTask -Pool PoolB { $Marker }
+        Wait-RunspaceTask -Task $tA -TimeoutSeconds 5 | Out-Null
+        Wait-RunspaceTask -Task $tB -TimeoutSeconds 5 | Out-Null
+
+        (Receive-RunspaceTask -Task $tA) | Should -Contain 'A'
+        (Receive-RunspaceTask -Task $tB) | Should -Contain 'B'
+    }
+
+    It 'filters tasks by pool' {
+        New-RunspacePool -Name PoolX | Out-Null
+        $tX = Start-RunspaceTask -Pool PoolX { 'x' }
+        $tD = Start-RunspaceTask { 'd' }
+        Wait-RunspaceTask -Task $tX -TimeoutSeconds 5 | Out-Null
+        Wait-RunspaceTask -Task $tD -TimeoutSeconds 5 | Out-Null
+
+        (Get-RunspaceTask -Pool PoolX).Id | Should -Contain $tX.Id
+        (Get-RunspaceTask -Pool PoolX).Id | Should -Not -Contain $tD.Id
+    }
+
     It 'reports module availability' {
         $results = Test-RunspaceModule -Module 'Microsoft.PowerShell.Management', 'DefinitelyMissingModule.ForTest'
         ($results | Where-Object Name -eq 'Microsoft.PowerShell.Management').Available | Should -BeTrue
