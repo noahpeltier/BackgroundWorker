@@ -1,5 +1,6 @@
 using System.Management.Automation;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 
 namespace BackgroundWorker.Commands;
 
@@ -73,15 +74,11 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
             .Border(TableBorder.Rounded)
             .Expand()
             .AddColumn(new TableColumn("Pool"))
-            .AddColumn(new TableColumn("Id"))
             .AddColumn(new TableColumn("Name"))
             .AddColumn(new TableColumn("Status"))
-            .AddColumn(new TableColumn("Created"))
             .AddColumn(new TableColumn("Started"))
-            .AddColumn(new TableColumn("Completed"))
             .AddColumn(new TableColumn("Duration"))
-            .AddColumn(new TableColumn("Timeout"))
-            .AddColumn(new TableColumn("Progress"));
+            .AddColumn(new TableColumn("Progress").LeftAligned().NoWrap().Padding(new Padding(0, 0, 0, 0)));
 
         var any = false;
         foreach (var task in tasks)
@@ -89,15 +86,11 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
             any = true;
             table.AddRow(
                 new Markup(Markup.Escape(task.PoolName)),
-                new Markup(Markup.Escape(task.Id.ToString())),
                 new Markup(Markup.Escape(task.Name ?? string.Empty)),
                 StatusMarkup(task.Status, spinnerFrame),
-                new Markup(Markup.Escape(FormatTime(task.CreatedAt))),
                 new Markup(Markup.Escape(FormatTime(task.StartedAt))),
-                new Markup(Markup.Escape(FormatTime(task.CompletedAt))),
                 new Markup(Markup.Escape(FormatDuration(task.Duration))),
-                new Markup(Markup.Escape(FormatDuration(task.Timeout))),
-                new Markup(Markup.Escape(includeProgress ? FormatProgress(task.LastProgress) : string.Empty))
+                includeProgress ? BuildProgressRenderable(task.LastProgress) : Text.Empty
             );
         }
 
@@ -129,19 +122,23 @@ public sealed class ShowRunspaceTasksCommand : PSCmdlet
         return duration.Value.ToString(@"hh\:mm\:ss");
     }
 
-    private static string FormatProgress(ProgressRecord? progress)
+    private static IRenderable BuildProgressRenderable(ProgressRecord? progress)
     {
         if (progress is null)
         {
-            return string.Empty;
+            return Text.Empty;
         }
 
         if (progress.PercentComplete >= 0)
         {
-            return $"{progress.PercentComplete}% {progress.StatusDescription}";
+            var pct = Math.Clamp(progress.PercentComplete, 0, 100);
+            var blocks = 20;
+            var filled = (int)Math.Round((pct / 100.0) * blocks);
+            var bar = new string('⣿', filled) + new string('⣀', blocks - filled);
+            return new Markup($"[cyan]{bar}[/] {pct,3}%");
         }
 
-        return progress.StatusDescription ?? string.Empty;
+        return new Markup(Markup.Escape(progress.StatusDescription ?? string.Empty));
     }
 
     private static Markup StatusMarkup(RunspaceTaskStatus status, string frame)
