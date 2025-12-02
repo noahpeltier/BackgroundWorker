@@ -9,8 +9,11 @@ $paths = @(
     (Join-Path $binPath 'BackgroundWorker.dll'),
     (Join-Path $binPath 'Spectre.Console.dll')
 )
-
-$destination = Join-Path $PSScriptRoot 'module'
+$version = (Import-PowerShellDataFile -path (Join-Path $moduleRoot 'BackgroundWorker.psd1')).ModuleVersion.tostring()
+$psd1Content = Get-Content -raw -path (Join-Path $moduleRoot 'BackgroundWorker.psd1')
+$psd1Content = $psd1Content -replace 'bin/Release/net8.0/'
+$psd1Content | out-file (Join-Path $moduleRoot 'BackgroundWorker.psd1')
+$destination = Join-Path $PSScriptRoot $version
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 
 foreach ($path in $paths) {
